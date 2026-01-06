@@ -26,9 +26,10 @@ server.on('clientError', (err, socket) => {
 });
 
 console.log('[index.js] Starting server on port', PORT);
-server.listen(PORT, () => {
-    console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
-    console.log(`🔌 WebSockets habilitados en http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+    console.log(`🔌 WebSockets habilitados en puerto ${PORT}`);
+    console.log(`🌍 Escuchando en todas las interfaces (0.0.0.0)`);
 });
 
 server.on('listening', () => {
