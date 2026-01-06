@@ -1,0 +1,94 @@
+const express = require('express');
+const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const controller = require('../controllers/proveedor.controller');
+const { authenticateToken, isAdmin } = require('../middlewares/auth.middleware');
+
+// Asegurar que el directorio de uploads existe (raíz del proyecto)
+const uploadsDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Configurar multer para guardar archivos en /uploads
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadsDir);
+    },
+    filename: (req, file, cb) => {
+        const timestamp = Date.now();
+        const random = Math.floor(Math.random() * 10000);
+        const ext = path.extname(file.originalname);
+        const name = path.basename(file.originalname, ext);
+        cb(null, `${name}-${timestamp}-${random}${ext}`);
+    }
+});
+
+const upload = multer({
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb) => {
+        const allowedMimes = [
+            'image/jpeg',
+            'image/jpg',
+            'image/png',
+            'image/webp',
+            'image/avif',
+            'image/gif',
+            'application/pdf'
+        ];
+        if (allowedMimes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
+        }
+    }
+});
+
+// GET - Listado público con filtros (estado, categoria)
+router.get('/', controller.getListadoPublico);
+
+// GET - Obtener todos los proveedores (requiere autenticación) con filtros: ?verificado=true&estado_aprobacion=pendiente
+router.get('/admin', authenticateToken, controller.getAll);
+
+// GET - Obtener proveedores públicos (solo verificados y aprobados para /colaboradores)
+router.get('/publico', controller.getPublico);
+
+// GET - Obtener proveedores públicos filtrados por estado/categoría (público)
+router.get('/filtrar', controller.getFiltradoPublico);
+
+// GET - Obtener proveedores por categoría (público)
+router.get('/categoria/:categoria', controller.getByCategoria);
+
+// 🆕 Obtener proveedor con características aplanadas (público)
+router.get('/with-caracteristicas/:id', controller.getByIdWithCaracteristicas);
+
+// GET - Obtener un proveedor por ID (público)
+router.get('/:id', controller.getById);
+
+// GET - Obtener caracteristicas de un proveedor
+router.get('/:id/caracteristicas', controller.getCaracteristicasByProveedor);
+
+// POST - Convertir postulante a proveedor (admin)
+router.post('/convertir-postulante-a-proveedor', authenticateToken, isAdmin, controller.convertirPostulante);
+
+// POST - Crear un nuevo proveedor (multipart/form-data)
+// Removemos autenticación ya que el formulario es público
+// Usamos .any() para aceptar CUALQUIER campo de archivo dinámicamente
+router.post('/',
+    upload.any(),
+    controller.create
+);
+
+// 🆕 Actualizar proveedor CON características (admin)
+router.put('/with-caracteristicas/:id', authenticateToken, isAdmin, controller.updateWithCaracteristicas);
+
+// PUT - Actualizar un proveedor (solo admin)
+router.put('/:id', authenticateToken, isAdmin, controller.update);
+
+// DELETE - Eliminar un proveedor (solo admin)
+router.delete('/:id', authenticateToken, isAdmin, controller.delete);
+
+module.exports = router;
