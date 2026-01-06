@@ -5,7 +5,7 @@ const db = require('../config/db');
  */
 const tableExists = async(tableName) => {
     const result = await db.query('SELECT to_regclass($1) AS reg', [`public.${tableName}`]);
-    return Boolean(result.rows[0] ? .reg);
+    return Boolean(result.rows[0]?.reg);
 };
 
 /**
