@@ -1,6 +1,7 @@
 const service = require('../services/proveedor.service');
 const postulanteService = require('../services/trabaja_nosotros_proveedor.service');
 const CategoriaModel = require('../models/categoria.models');
+const cloudinaryConfig = require('../config/cloudinary.config');
 
 // Se obtiene desde DB en tiempo de ejecución, no hardcodeado
 const getCategoriasMap = async() => {
@@ -355,42 +356,69 @@ exports.create = async(req, res) => {
         const archivosCaracteristicas = {};
         let contadorImagenes = 0; // Contador separado para imágenes del proveedor
 
-        filesArray.forEach((file, index) => {
+        // Procesar archivos y subirlos a Cloudinary
+        for (const file of filesArray) {
             // Los archivos de características vienen con fieldname que coincide con el id de característica
             // Formatos soportados: "caracteristica_15", "file_car_15"
             if (file.fieldname && (file.fieldname.startsWith('caracteristica_') || file.fieldname.startsWith('file_car_'))) {
                 const idCaracteristica = file.fieldname
                     .replace('caracteristica_', '')
                     .replace('file_car_', '');
-                // Guardar URL limpia sin codificación doble
-                archivosCaracteristicas[idCaracteristica] = `/uploads/${file.filename}`;
+                
+                try {
+                    // Subir archivo de característica a Cloudinary
+                    const result = await cloudinaryConfig.uploadImageBuffer(
+                        file.buffer,
+                        'eclat/proveedores/caracteristicas'
+                    );
+                    archivosCaracteristicas[idCaracteristica] = result.url;
 
-                console.log('[PROVEEDOR][CREATE] Archivo de característica detectado:', {
-                    fieldname: file.fieldname,
-                    idCaracteristica,
-                    filename: file.filename,
-                    urlAsignada: `/uploads/${file.filename}`
-                });
+                    console.log('[PROVEEDOR][CREATE] Archivo de característica subido a Cloudinary:', {
+                        fieldname: file.fieldname,
+                        idCaracteristica,
+                        cloudinaryUrl: result.url
+                    });
+                } catch (cloudinaryError) {
+                    console.error('[PROVEEDOR][CREATE] Error al subir archivo de característica a Cloudinary:', cloudinaryError);
+                    return res.status(500).json({
+                        error: 'Error al subir archivo de característica a Cloudinary',
+                        details: cloudinaryError.message
+                    });
+                }
             } else {
                 // Es una imagen del proveedor
-                // Marcar como principal solo la imagen cuyo índice coincide con imagen_principal_index
-                const esPrincipal = (contadorImagenes === imagenPrincipalIndex);
-                imagenes.push({
-                    url_imagen: file.filename,
-                    es_principal: esPrincipal,
-                    orden: contadorImagenes + 1
-                });
+                try {
+                    // Subir imagen a Cloudinary
+                    const result = await cloudinaryConfig.uploadImageBuffer(
+                        file.buffer,
+                        'eclat/proveedores/imagenes'
+                    );
 
-                console.log(`[PROVEEDOR][CREATE] Imagen agregada: index=${contadorImagenes}, es_principal=${esPrincipal}, filename=${file.filename}`);
-                contadorImagenes++;
+                    // Marcar como principal solo la imagen cuyo índice coincide con imagen_principal_index
+                    const esPrincipal = (contadorImagenes === imagenPrincipalIndex);
+                    imagenes.push({
+                        url_imagen: result.url,
+                        es_principal: esPrincipal,
+                        orden: contadorImagenes + 1
+                    });
+
+                    console.log(`[PROVEEDOR][CREATE] Imagen subida a Cloudinary: index=${contadorImagenes}, es_principal=${esPrincipal}, url=${result.url}`);
+                    contadorImagenes++;
+                } catch (cloudinaryError) {
+                    console.error('[PROVEEDOR][CREATE] Error al subir imagen a Cloudinary:', cloudinaryError);
+                    return res.status(500).json({
+                        error: 'Error al subir imagen a Cloudinary',
+                        details: cloudinaryError.message
+                    });
+                }
             }
-        });
+        }
 
         // Mapear archivos a sus características correspondientes
         caracteristicas.forEach(caract => {
             const idCaract = String(caract.id_caracteristica || caract.idCaracteristica);
             if (archivosCaracteristicas[idCaract]) {
-                // Asignar la URL limpia del archivo a la característica
+                // Asignar la URL de Cloudinary del archivo a la característica
                 caract.valor = archivosCaracteristicas[idCaract];
                 caract.valor_texto = archivosCaracteristicas[idCaract];
             }
@@ -400,7 +428,7 @@ exports.create = async(req, res) => {
             totalArchivos: filesArray.length,
             imagenes: imagenes.length,
             archivosCaracteristicas: Object.keys(archivosCaracteristicas),
-            caracteristicasConArchivos: caracteristicas.filter(c => c.valor_texto && c.valor_texto.startsWith('/uploads/')).length
+            caracteristicasConArchivos: caracteristicas.filter(c => c.valor_texto && (c.valor_texto.startsWith('http://') || c.valor_texto.startsWith('https://'))).length
         });
 
         // Log de validación de imagen principal
