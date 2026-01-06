@@ -2,29 +2,11 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const controller = require('../controllers/proveedor.controller');
 const { authenticateToken, isAdmin } = require('../middlewares/auth.middleware');
 
-// Asegurar que el directorio de uploads existe (raíz del proyecto)
-const uploadsDir = path.join(__dirname, '../../uploads');
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Configurar multer para guardar archivos en /uploads
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, uploadsDir);
-    },
-    filename: (req, file, cb) => {
-        const timestamp = Date.now();
-        const random = Math.floor(Math.random() * 10000);
-        const ext = path.extname(file.originalname);
-        const name = path.basename(file.originalname, ext);
-        cb(null, `${name}-${timestamp}-${random}${ext}`);
-    }
-});
+// Configurar multer para usar memoria (necesario para Cloudinary)
+const storage = multer.memoryStorage();
 
 const upload = multer({
     storage,
