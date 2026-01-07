@@ -358,6 +358,20 @@ exports.create = async(req, res) => {
 
         // Procesar archivos y subirlos a Cloudinary
         for (const file of filesArray) {
+            // Validar que el archivo tenga buffer
+            if (!file.buffer || file.buffer.length === 0) {
+                console.error('[PROVEEDOR][CREATE] Archivo sin buffer:', {
+                    fieldname: file.fieldname,
+                    originalname: file.originalname,
+                    mimetype: file.mimetype,
+                    size: file.size
+                });
+                return res.status(400).json({
+                    error: 'Archivo vacío o corrupto',
+                    details: `El archivo ${file.originalname} no tiene contenido válido`
+                });
+            }
+
             // Los archivos de características vienen con fieldname que coincide con el id de característica
             // Formatos soportados: "caracteristica_15", "file_car_15"
             if (file.fieldname && (file.fieldname.startsWith('caracteristica_') || file.fieldname.startsWith('file_car_'))) {
@@ -366,28 +380,52 @@ exports.create = async(req, res) => {
                     .replace('file_car_', '');
                 
                 try {
-                    // Subir archivo de característica a Cloudinary
+                    console.log('[PROVEEDOR][CREATE] Subiendo archivo de característica:', {
+                        fieldname: file.fieldname,
+                        idCaracteristica,
+                        mimetype: file.mimetype,
+                        originalname: file.originalname,
+                        size: file.size,
+                        bufferLength: file.buffer.length
+                    });
+
+                    // Subir archivo de característica a Cloudinary (imagen o PDF)
                     const result = await cloudinaryConfig.uploadImageBuffer(
                         file.buffer,
                         'eclat/proveedores/caracteristicas'
                     );
                     archivosCaracteristicas[idCaracteristica] = result.url;
 
-                    console.log('[PROVEEDOR][CREATE] Archivo de característica subido a Cloudinary:', {
+                    console.log('[PROVEEDOR][CREATE] ✅ Archivo de característica subido a Cloudinary:', {
                         fieldname: file.fieldname,
                         idCaracteristica,
-                        cloudinaryUrl: result.url
+                        mimetype: file.mimetype,
+                        cloudinaryUrl: result.url,
+                        publicId: result.publicId
                     });
                 } catch (cloudinaryError) {
-                    console.error('[PROVEEDOR][CREATE] Error al subir archivo de característica a Cloudinary:', cloudinaryError);
+                    console.error('[PROVEEDOR][CREATE] ❌ Error al subir archivo de característica a Cloudinary:', {
+                        fieldname: file.fieldname,
+                        mimetype: file.mimetype,
+                        error: cloudinaryError.message,
+                        stack: cloudinaryError.stack
+                    });
                     return res.status(500).json({
                         error: 'Error al subir archivo de característica a Cloudinary',
-                        details: cloudinaryError.message
+                        details: cloudinaryError.message,
+                        filename: file.originalname
                     });
                 }
             } else {
                 // Es una imagen del proveedor
                 try {
+                    console.log('[PROVEEDOR][CREATE] Subiendo imagen de proveedor:', {
+                        mimetype: file.mimetype,
+                        originalname: file.originalname,
+                        size: file.size,
+                        bufferLength: file.buffer.length
+                    });
+
                     // Subir imagen a Cloudinary
                     const result = await cloudinaryConfig.uploadImageBuffer(
                         file.buffer,
@@ -402,13 +440,18 @@ exports.create = async(req, res) => {
                         orden: contadorImagenes + 1
                     });
 
-                    console.log(`[PROVEEDOR][CREATE] Imagen subida a Cloudinary: index=${contadorImagenes}, es_principal=${esPrincipal}, url=${result.url}`);
+                    console.log(`[PROVEEDOR][CREATE] ✅ Imagen subida a Cloudinary: index=${contadorImagenes}, es_principal=${esPrincipal}, url=${result.url}`);
                     contadorImagenes++;
                 } catch (cloudinaryError) {
-                    console.error('[PROVEEDOR][CREATE] Error al subir imagen a Cloudinary:', cloudinaryError);
+                    console.error('[PROVEEDOR][CREATE] ❌ Error al subir imagen a Cloudinary:', {
+                        mimetype: file.mimetype,
+                        error: cloudinaryError.message,
+                        stack: cloudinaryError.stack
+                    });
                     return res.status(500).json({
                         error: 'Error al subir imagen a Cloudinary',
-                        details: cloudinaryError.message
+                        details: cloudinaryError.message,
+                        filename: file.originalname
                     });
                 }
             }

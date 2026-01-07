@@ -10,7 +10,10 @@ const storage = multer.memoryStorage();
 
 const upload = multer({
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    limits: { 
+        fileSize: 15 * 1024 * 1024, // 15MB (aumentado para PDFs)
+        files: 20 // Máximo 20 archivos por request
+    },
     fileFilter: (req, file, cb) => {
         const allowedMimes = [
             'image/jpeg',
@@ -24,7 +27,12 @@ const upload = multer({
         if (allowedMimes.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
+            console.error('[MULTER] Tipo de archivo rechazado:', {
+                originalname: file.originalname,
+                mimetype: file.mimetype,
+                allowedMimes
+            });
+            cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}. Permitidos: ${allowedMimes.join(', ')}`));
         }
     }
 });

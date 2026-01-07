@@ -31,27 +31,59 @@ const uploadImage = async (filePath, folder = 'eclat') => {
 };
 
 /**
- * Sube una imagen a Cloudinary desde un buffer (multer)
+ * Sube una imagen/archivo a Cloudinary desde un buffer (multer)
  * @param {Buffer} buffer - Buffer del archivo
  * @param {string} folder - Carpeta en Cloudinary (opcional)
+ * @param {Object} options - Opciones adicionales (formato, transformaciones, etc.)
  * @returns {Promise<Object>} - Objeto con secure_url y public_id
  */
-const uploadImageBuffer = (buffer, folder = 'eclat') => {
+const uploadImageBuffer = (buffer, folder = 'eclat', options = {}) => {
     return new Promise((resolve, reject) => {
+        // Validar que el buffer existe y no está vacío
+        if (!buffer || buffer.length === 0) {
+            reject(new Error('Empty file'));
+            return;
+        }
+
+        console.log('[Cloudinary] Iniciando subida:', {
+            folder,
+            bufferLength: buffer.length,
+            bufferSize: `${(buffer.length / 1024).toFixed(2)} KB`,
+            options
+        });
+
         const uploadStream = cloudinary.uploader.upload_stream(
-            { folder: folder, resource_type: 'auto' },
+            { 
+                folder: folder, 
+                resource_type: 'auto', // auto detecta imágenes, videos, PDFs, etc.
+                ...options 
+            },
             (error, result) => {
                 if (error) {
-                    console.error('Error uploading to Cloudinary:', error);
+                    console.error('[Cloudinary] Error al subir archivo:', {
+                        error: error.message,
+                        http_code: error.http_code,
+                        folder
+                    });
                     reject(error);
                 } else {
+                    console.log('[Cloudinary] ✅ Archivo subido exitosamente:', {
+                        url: result.secure_url,
+                        publicId: result.public_id,
+                        format: result.format,
+                        resourceType: result.resource_type,
+                        bytes: result.bytes
+                    });
                     resolve({
                         url: result.secure_url,
-                        publicId: result.public_id
+                        publicId: result.public_id,
+                        format: result.format,
+                        resourceType: result.resource_type
                     });
                 }
             }
         );
+        
         uploadStream.end(buffer);
     });
 };
