@@ -389,11 +389,27 @@ exports.create = async(req, res) => {
                         bufferLength: file.buffer.length
                     });
 
-                    // Subir archivo de característica a Cloudinary (imagen o PDF)
-                    const result = await cloudinaryConfig.uploadImageBuffer(
-                        file.buffer,
-                        'eclat/proveedores/caracteristicas'
-                    );
+                    // Determinar si es PDF u otro documento
+                    const isPDF = file.mimetype === 'application/pdf';
+                    let result;
+
+                    if (isPDF) {
+                        // Subir PDF como archivo raw
+                        result = await cloudinaryConfig.uploadFileBuffer(
+                            file.buffer,
+                            'eclat/proveedores/caracteristicas/documentos',
+                            file.originalname
+                        );
+                        console.log('[PROVEEDOR][CREATE] ✅ PDF subido como archivo raw');
+                    } else {
+                        // Subir imagen normalmente
+                        result = await cloudinaryConfig.uploadImageBuffer(
+                            file.buffer,
+                            'eclat/proveedores/caracteristicas/imagenes'
+                        );
+                        console.log('[PROVEEDOR][CREATE] ✅ Imagen subida');
+                    }
+
                     archivosCaracteristicas[idCaracteristica] = result.url;
 
                     console.log('[PROVEEDOR][CREATE] ✅ Archivo de característica subido a Cloudinary:', {
