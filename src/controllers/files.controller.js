@@ -49,11 +49,12 @@ exports.proxy = async(req, res) => {
         let url = req.query.url;
         if (!url) return res.status(400).json({ error: 'url required' });
         
-        // Decodificar la URL si viene doblemente encodificada
-        // Detectar si hay doble encoding (ej: %2520 en lugar de %20)
-        if (url.includes('%25')) {
+        // Decodificar la URL si viene doblemente encodificada (%2520 -> %20)
+        let decodeSafety = 0;
+        while (url.includes('%25') && decodeSafety < 3) {
             url = decodeURIComponent(url);
-            console.log('[proxy] URL decodificada (tenia doble encoding):', url);
+            decodeSafety += 1;
+            console.log('[proxy] URL decodificada (tenia encoding extra):', url);
         }
         
         let parsed;
