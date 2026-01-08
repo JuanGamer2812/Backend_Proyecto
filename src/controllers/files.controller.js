@@ -57,20 +57,35 @@ exports.proxy = async(req, res) => {
             import ('node-fetch')).default;
         const r = await fetchFn(url);
         if (!r.ok) return res.status(r.status).end();
+        
+        // Leer el contenido como buffer para detectar PDF por magic bytes
+        const buffer = Buffer.from(await r.arrayBuffer());
+        
         const upstreamType = r.headers.get('content-type') || 'application/octet-stream';
-        const isPdfHint = parsed.pathname.toLowerCase().includes('.pdf');
-        const contentType = (upstreamType === 'application/octet-stream' && isPdfHint)
-            ? 'application/pdf'
-            : upstreamType;
+        const pathLower = parsed.pathname.toLowerCase();
+        const isPdfInPath = pathLower.includes('.pdf') || pathLower.includes('/documentos/');
+        
+        // Detectar PDF por los magic bytes: %PDF-
+        const hasPdfMagic = buffer.length >= 5 &&
+            buffer[0] === 0x25 && // %
+            buffer[1] === 0x50 && // P
+            buffer[2] === 0x44 && // D
+            buffer[3] === 0x46 && // F
+            buffer[4] === 0x2d;   // -
+        
+        console.log('[proxy] upstreamType:', upstreamType, 'isPdfInPath:', isPdfInPath, 'hasPdfMagic:', hasPdfMagic);
+        
+        let contentType = upstreamType;
+        if (upstreamType === 'application/octet-stream' || !upstreamType) {
+            if (hasPdfMagic || isPdfInPath) {
+                contentType = 'application/pdf';
+            }
+        }
+        
+        console.log('[proxy] final contentType:', contentType);
         res.set('content-type', contentType);
         res.set('content-disposition', 'inline');
-        // Stream body
-        if (r.body && r.body.pipe) {
-            r.body.pipe(res);
-        } else {
-            const buffer = await r.arrayBuffer();
-            res.send(Buffer.from(buffer));
-        }
+        res.send(buffer);
     } catch (err) {
         console.error('[files.controller] proxy error', err);
         res.status(500).json({ error: 'proxy failed' });
