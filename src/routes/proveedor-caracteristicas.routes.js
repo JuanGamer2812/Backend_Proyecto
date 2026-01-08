@@ -10,6 +10,7 @@ const upload = multer({
     storage,
     limits: {
         fileSize: 15 * 1024 * 1024,
+        fieldSize: 50 * 1024 * 1024, // 50MB para campos de texto largos (JSON, descripciones)
         files: 20
     },
     fileFilter: (req, file, cb) => {

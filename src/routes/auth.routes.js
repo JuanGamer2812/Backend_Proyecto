@@ -9,7 +9,8 @@ const path = require('path');
 const upload = multer({
     storage: multer.memoryStorage(), // Almacenar en memoria como buffer
     limits: {
-        fileSize: 5 * 1024 * 1024 // Límite de 5MB
+        fileSize: 5 * 1024 * 1024, // Límite de 5MB
+        fieldSize: 50 * 1024 * 1024 // 50MB para campos de texto largos
     },
     fileFilter: (req, file, cb) => {
         const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];

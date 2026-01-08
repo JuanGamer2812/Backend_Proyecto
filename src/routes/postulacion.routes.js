@@ -6,7 +6,10 @@ const controller = require('../controllers/postulacion.controller');
 // Multer memory storage para Cloudinary uploads
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB (aumentado de 10MB)
+    limits: { 
+        fileSize: 50 * 1024 * 1024, // 50MB (aumentado de 10MB)
+        fieldSize: 50 * 1024 * 1024 // 50MB para campos de texto largos
+    },
     fileFilter: (req, file, cb) => {
         const allowedTypes = [
             'image/jpeg',
