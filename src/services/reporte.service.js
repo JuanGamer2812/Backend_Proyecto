@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 const reporteModel = require('../models/reporte.models');
+const cloudinaryConfig = require('../config/cloudinary.config');
 
 const SYSTEM_NAME = 'ÉCLAT';
 
@@ -21,6 +22,47 @@ const formatDateTime = (value) => {
     return `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 19)}`;
 };
 
+const parseStoredMeta = (value) => {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    const s = String(value).trim();
+    if (!s || !s.startsWith('{') || !s.endsWith('}')) return null;
+    try {
+        return JSON.parse(s);
+    } catch (e) {
+        return null;
+    }
+};
+
+const normalizeStoredFile = (value, baseUrl, folder) => {
+    if (!value) return null;
+    const meta = parseStoredMeta(value);
+    if (meta && typeof meta === 'object') {
+        const publicId = meta.public_id || meta.publicId || null;
+        const resourceType = meta.resource_type || meta.resourceType || null;
+        let url = meta.url || meta.secure_url || null;
+        if (!url && publicId) {
+            try {
+                const cloud = cloudinaryConfig.cloudinary || cloudinaryConfig;
+                url = cloud.url(publicId, { resource_type: resourceType || 'raw' });
+            } catch (e) {
+                // ignore and fallback to local URL when possible
+            }
+        }
+        if (url || publicId) {
+            return JSON.stringify({
+                url: url || null,
+                public_id: publicId,
+                resource_type: resourceType
+            });
+        }
+    }
+
+    const s = String(value);
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    return `${baseUrl}/${folder}/${s}`;
+};
+
 const normalizeProveedor = (row) => {
     const portafolioFile = row.portafolio_file_postu_proveedor || row.portafolio_file || row.archivo_portafolio || null;
     const portafolioLink = row.portafolio_link_postu_proveedor || row.portafolio_link || null;
@@ -33,7 +75,7 @@ const normalizeProveedor = (row) => {
         descripcion: row.portafolio_postu_proveedor || row.descripcion || row.portafolio || null,
         fechaPostulacion: row.fecha_postu_proveedor || row.fecha_postulacion || row.fecha || null,
         portafolioLink: portafolioLink,
-        portafolioFile: portafolioFile ? `${baseUrl}/tmp_uploads/${portafolioFile}` : null,
+        portafolioFile: normalizeStoredFile(portafolioFile, baseUrl, 'tmp_uploads'),
     };
 };
 
@@ -91,7 +133,7 @@ const normalizeTrabajador = (row) => {
             row.telefono_usuario ||
             row.telefono_postu_trabajador ||
             null,
-        cvUrl: cvFileName ? `${baseUrl}/tmp_uploads/${cvFileName}` : null,
+        cvUrl: normalizeStoredFile(cvFileName, baseUrl, 'tmp_uploads'),
         fechaPostulacion: fechaPost,
     };
 };
@@ -205,8 +247,10 @@ const getProveedorData = async(filters = {}) => {
     }
 
     filtered.sort((a, b) => {
-        const da = parseDate(a.fechaPostulacion)?.getTime() || 0;
-        const db = parseDate(b.fechaPostulacion)?.getTime() || 0;
+        const daDate = parseDate(a.fechaPostulacion);
+        const dbDate = parseDate(b.fechaPostulacion);
+        const da = daDate ? daDate.getTime() : 0;
+        const db = dbDate ? dbDate.getTime() : 0;
         return db - da;
     });
 
@@ -229,8 +273,10 @@ const getTrabajadorData = async(filters = {}) => {
     }
 
     filtered.sort((a, b) => {
-        const da = parseDate(a.fechaPostulacion)?.getTime() || 0;
-        const db = parseDate(b.fechaPostulacion)?.getTime() || 0;
+        const daDate = parseDate(a.fechaPostulacion);
+        const dbDate = parseDate(b.fechaPostulacion);
+        const da = daDate ? daDate.getTime() : 0;
+        const db = dbDate ? dbDate.getTime() : 0;
         return db - da;
     });
 

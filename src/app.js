@@ -30,29 +30,34 @@ const v_reseniaRoutes = require('./routes/v_resenia.routes');
 const rolRoutes = require('./routes/rol.routes');
 const proveedorRoutes = require('./routes/proveedor.routes');
 const proveedorImagenRoutes = require('./routes/proveedor-imagen.routes');
+const proveedorCaracteristicasRoutes = require('./routes/proveedor-caracteristicas.routes');
+const proveedorCompletoRoutes = require('./routes/proveedor-completo.routes');
 const postulacionRoutes = require('./routes/postulacion.routes');
 const trabajaNosotrosProveedorRoutes = require('./routes/trabaja_nosotros_proveedor.routes');
 const usuarioRoutes = require('./routes/usuario.routes');
 const usuarioRolRoutes = require('./routes/usuario_rol.routes');
 const reporteRoutes = require('./routes/reporte.routes');
+const filesRoutes = require('./routes/files.routes');
 const caracteristicaRoutes = require('./routes/caracteristica.routes');
 const eventoRoutes = require('./routes/evento.routes');
 const invitadosRoutes = require('./routes/invitados.routes');
+const filesController = require('./controllers/files.controller');
+const { authenticateToken, isAdmin, optionalAuth } = require('./middlewares/auth.middleware');
 
 const app = express();
 
 // Configuración CORS mejorada - permite múltiples orígenes
 app.use(cors({
-    origin: function (origin, callback) {
+    origin: function(origin, callback) {
         const allowedOrigins = [
             'http://localhost:4200',
             'https://eclat.up.railway.app',
             process.env.FRONTEND_URL
         ].filter(Boolean);
-        
+
         // Permitir requests sin origin (como Postman, curl, mobile apps)
         if (!origin) return callback(null, true);
-        
+
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
@@ -140,6 +145,9 @@ app.use('/api/v_resenia', v_reseniaRoutes);
 app.use('/api/rol', rolRoutes);
 app.use('/api/proveedor', proveedorRoutes);
 app.use('/api/proveedor-imagen', proveedorImagenRoutes);
+app.use('/api/proveedor-caracteristicas', proveedorCaracteristicasRoutes);
+// Rutas completas de proveedores (lista, detalle, servicios, aprobaciones, etc.)
+app.use('/api/proveedores', proveedorCompletoRoutes);
 // Caracteristicas
 app.use('/api/caracteristica', caracteristicaRoutes);
 // Endpoints para crear eventos y relaciones
@@ -153,10 +161,12 @@ app.use('/api/trabajanosotros', trabajaNosotrosProveedorRoutes);
 app.use('/api/usuario', usuarioRoutes);
 app.use('/api/usuario_rol', usuarioRolRoutes);
 app.use('/api/reportes', reporteRoutes);
+app.use('/api/files', filesRoutes);
+// Legacy alias for older clients that call /signed-url directly
+app.get('/signed-url', optionalAuth, filesController.getSignedUrl);
 
 // Endpoint directo solicitado por frontend
 const proveedorController = require('./controllers/proveedor.controller');
-const { authenticateToken, isAdmin } = require('./middlewares/auth.middleware');
 app.post('/api/convertir-postulante-a-proveedor', authenticateToken, isAdmin, proveedorController.convertirPostulante);
 
 module.exports = app;

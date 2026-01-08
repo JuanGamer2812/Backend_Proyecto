@@ -194,7 +194,15 @@ const changePassword = async(userId, currentPassword, newPassword) => {
         const user = result.rows[0];
 
         // Verificar contraseña actual
-        const isValid = await comparePassword(currentPassword, user.contrasena_usuario);
+        const storedPassword = user.contrasena_usuario || '';
+        let isValid = false;
+        const looksHashed = typeof storedPassword === 'string' && storedPassword.startsWith('$2');
+        if (looksHashed) {
+            isValid = await comparePassword(currentPassword, storedPassword);
+        } else {
+            // Soportar contraseñas en texto plano (legacy)
+            isValid = currentPassword === storedPassword;
+        }
         if (!isValid) {
             throw new Error('Contraseña actual incorrecta');
         }

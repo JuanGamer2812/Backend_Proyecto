@@ -68,3 +68,17 @@ exports.createTrabajador = async(data) => {
     );
     return result.rows[0];
 };
+
+exports.findTrabajadorById = async(id) => {
+    const result = await db.query(
+        `SELECT * FROM trabaja_nosotros_trabajador WHERE id_postu_trabajador = $1 LIMIT 1`, [id]
+    );
+    return result.rows[0] || null;
+};
+
+exports.findProveedorById = async(id) => {
+    const result = await db.query(
+        `SELECT * FROM trabaja_nosotros_proveedor WHERE id_postu_proveedor = $1 LIMIT 1`, [id]
+    );
+    return result.rows[0] || null;
+};

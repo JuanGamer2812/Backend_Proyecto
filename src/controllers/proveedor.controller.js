@@ -45,6 +45,8 @@ const shapeProveedor = (row) => ({
     id_proveedor: row.id_proveedor,
     nombre: row.nombre,
     categoria: normalizeCategoria(row.categoria || row.tipo_nombre || row.tipo || row.categoria_proveedor || row.categoria_postu_proveedor),
+    id_plan: row.id_plan ?? null,
+    nombre_plan: row.nombre_plan || row.plan || row.plan_nombre || null,
     precio_base: row.precio_base !== undefined ? row.precio_base : (row.precio !== undefined ? row.precio : null),
     precio: row.precio !== undefined ? row.precio : (row.precio_base !== undefined ? row.precio_base : null),
     descripcion: row.descripcion || null,
@@ -354,6 +356,8 @@ exports.create = async(req, res) => {
         // Separar imágenes de archivos de características (PDFs, etc.)
         const imagenes = [];
         const archivosCaracteristicas = {};
+        const archivosCaracteristicasPublicId = {};
+        const uploadedResources = []; // trackear { publicId, resourceType } para cleanup si falla la BD
         let contadorImagenes = 0; // Contador separado para imágenes del proveedor
 
         // Procesar archivos y subirlos a Cloudinary
@@ -378,7 +382,7 @@ exports.create = async(req, res) => {
                 const idCaracteristica = file.fieldname
                     .replace('caracteristica_', '')
                     .replace('file_car_', '');
-                
+
                 try {
                     console.log('[PROVEEDOR][CREATE] Subiendo archivo de característica:', {
                         fieldname: file.fieldname,
@@ -411,6 +415,9 @@ exports.create = async(req, res) => {
                     }
 
                     archivosCaracteristicas[idCaracteristica] = result.url;
+                    archivosCaracteristicasPublicId[idCaracteristica] = result.publicId || result.public_id || null;
+                    // Trackear recurso subido para posible cleanup
+                    if (result.publicId) uploadedResources.push({ publicId: result.publicId, resourceType: result.resourceType || (isPDF ? 'raw' : 'image') });
 
                     console.log('[PROVEEDOR][CREATE] ✅ Archivo de característica subido a Cloudinary:', {
                         fieldname: file.fieldname,
@@ -455,6 +462,8 @@ exports.create = async(req, res) => {
                         es_principal: esPrincipal,
                         orden: contadorImagenes + 1
                     });
+                    // Trackear publicId para cleanup si la inserción falla
+                    if (result.publicId) uploadedResources.push({ publicId: result.publicId, resourceType: result.resourceType || 'image' });
 
                     console.log(`[PROVEEDOR][CREATE] ✅ Imagen subida a Cloudinary: index=${contadorImagenes}, es_principal=${esPrincipal}, url=${result.url}`);
                     contadorImagenes++;
@@ -478,8 +487,16 @@ exports.create = async(req, res) => {
             const idCaract = String(caract.id_caracteristica || caract.idCaracteristica);
             if (archivosCaracteristicas[idCaract]) {
                 // Asignar la URL de Cloudinary del archivo a la característica
-                caract.valor = archivosCaracteristicas[idCaract];
-                caract.valor_texto = archivosCaracteristicas[idCaract];
+                const url = archivosCaracteristicas[idCaract];
+                const pubId = archivosCaracteristicasPublicId[idCaract] || null;
+                caract.valor = url;
+                caract.valor_texto = url;
+                // Guardar metadata útil en valor_json para permitir borrado/gestión posterior
+                try {
+                    caract.valor_json = JSON.stringify({ url, public_id: pubId });
+                } catch (e) {
+                    caract.valor_json = null;
+                }
             }
         });
 
@@ -612,13 +629,34 @@ exports.create = async(req, res) => {
 
         console.log('[PROVEEDOR][CREATE] Características finales que se envían al modelo:', JSON.stringify(caracteristicas, null, 2));
 
-        // Crear proveedor en base de datos
-        const nuevoProveedor = await service.createProveedor(proveedorData);
+        // Crear proveedor en base de datos (si falla, limpiar recursos subidos a Cloudinary)
+        try {
+            const nuevoProveedor = await service.createProveedor(proveedorData);
+            return res.status(201).json({
+                message: 'Proveedor creado exitosamente',
+                proveedor: nuevoProveedor
+            });
+        } catch (dbErr) {
+            console.error('[PROVEEDOR][CREATE] ❌ Error al insertar proveedor en la BD, iniciando cleanup de Cloudinary:', dbErr.message);
+            if (Array.isArray(uploadedResources) && uploadedResources.length) {
+                try {
+                    await Promise.allSettled(uploadedResources.map(r => {
+                        if (!r || !r.publicId) return Promise.resolve(null);
+                        return cloudinaryConfig.deleteImage(r.publicId).catch(err => {
+                            console.error('[PROVEEDOR][CREATE] Error borrando recurso en Cloudinary:', r.publicId, err.message);
+                        });
+                    }));
+                    console.log('[PROVEEDOR][CREATE] ✅ Cleanup de Cloudinary finalizado');
+                } catch (cleanupErr) {
+                    console.error('[PROVEEDOR][CREATE] ❌ Error durante cleanup de Cloudinary:', cleanupErr.message);
+                }
+            }
 
-        res.status(201).json({
-            message: 'Proveedor creado exitosamente',
-            proveedor: nuevoProveedor
-        });
+            return res.status(500).json({
+                message: 'Error al crear el proveedor',
+                error: dbErr.message
+            });
+        }
 
     } catch (err) {
         console.error('Error en proveedorController.create:', err);

@@ -359,6 +359,8 @@ exports.findById = async(id) => {
 exports.findByIdWithImages = async(id) => {
     const sql = `
                 SELECT p.*,
+                    pl.nombre_plan,
+                    pl.descripcion AS plan_descripcion,
                     COALESCE(
                         json_agg(
                             json_build_object(
@@ -373,9 +375,10 @@ exports.findByIdWithImages = async(id) => {
                         '[]'
                     ) AS proveedor_imagen
                 FROM proveedor p
+                LEFT JOIN plan pl ON p.id_plan = pl.id_plan
                 LEFT JOIN proveedor_imagen pi ON pi.id_proveedor = p.id_proveedor AND pi.activo = TRUE
                 WHERE p.id_proveedor = $1
-                GROUP BY p.id_proveedor;
+                GROUP BY p.id_proveedor, pl.nombre_plan, pl.descripcion;
         `;
 
     const res = await db.query(sql, [id]);

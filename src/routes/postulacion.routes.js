@@ -54,4 +54,7 @@ router.post('/trabajadores', (req, res, next) => {
     });
 }, controller.crearTrabajador);
 
+// GET signed URL for trabajador CV
+router.get('/trabajadores/:id/cv-signed', controller.getCvSigned);
+
 module.exports = router;

@@ -38,6 +38,9 @@ router.get('/buscar/servicio/:tipo', proveedorController.buscarPorServicio);
  * @desc    Obtiene un proveedor por ID
  * @access  Public
  */
+// Ruta compatibilidad: /api/proveedores/:id/completo
+router.get('/:id/completo', proveedorController.getById);
+
 router.get('/:id', proveedorController.getById);
 
 /**

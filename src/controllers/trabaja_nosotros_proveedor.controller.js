@@ -1,5 +1,8 @@
 const service = require('../services/trabaja_nosotros_proveedor.service');
 const path = require('path');
+const cloudinaryConfig = require('../config/cloudinary.config');
+const { makeAbsoluteUrl } = require('../utils/url.util');
+const fs = require('fs');
 
 // Validaciones
 const validateEmail = (email) => {
@@ -44,6 +47,24 @@ exports.getById = async(req, res) => {
             return res.status(404).json({ error: 'Registro no encontrado' });
         }
 
+        // Si hay un CV almacenado en portafolio_file_postu_proveedor, parsearlo y exponer url absoluta
+        try {
+            if (data.portafolio_file_postu_proveedor) {
+                try {
+                    const parsed = JSON.parse(data.portafolio_file_postu_proveedor);
+                    data.portafolio_file = {
+                        url: makeAbsoluteUrl(parsed.url || parsed.url_imagen || parsed.secure_url || parsed.secureUrl),
+                        public_id: parsed.public_id || parsed.publicId || null
+                    };
+                } catch (e) {
+                    // Si no es JSON, asumir es una URL/relative path
+                    data.portafolio_file = { url: makeAbsoluteUrl(data.portafolio_file_postu_proveedor) };
+                }
+            }
+        } catch (err) {
+            console.warn('[TRABaja][GET] error parsing portafolio_file_postu_proveedor', err);
+        }
+
         res.json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -77,33 +98,83 @@ exports.create = async(req, res) => {
             });
         }
 
-        // Procesar archivos
+        // Procesar archivos: subir PDFs (CV) a Cloudinary similar a flow de proveedor
         const archivos = [];
         const archivosPaths = [];
+        let portafolio_file_postu_proveedor = null; // campo que guardaremos en DB (url o JSON)
 
         if (req.files && req.files.length > 0) {
             for (const file of req.files) {
-                const fileUrl = `/tmp_uploads/${file.filename}`;
-                archivosPaths.push(fileUrl);
-                archivos.push({
-                    nombre: file.originalname,
-                    tipo: file.mimetype,
-                    tamanio: file.size,
-                    url: fileUrl
-                });
+                // Si es PDF (CV), subir a Cloudinary como raw y guardar URL + public_id
+                try {
+                    if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
+                        // Obtener buffer: multer diskStorage no provee `buffer`, leer desde disco si es necesario
+                        let fileBuffer = file.buffer;
+                        if (!fileBuffer) {
+                            const filePath = file.path || path.join(__dirname, '../../tmp_uploads', file.filename);
+                            try {
+                                fileBuffer = await fs.promises.readFile(filePath);
+                            } catch (rfErr) {
+                                console.error('[TRABaja][CREATE] Error leyendo archivo desde disco:', rfErr);
+                                throw rfErr;
+                            }
+                        }
+
+                        const result = await cloudinaryConfig.uploadFileBuffer(
+                            fileBuffer,
+                            'eclat/postulantes/cv',
+                            file.originalname
+                        );
+                        const fileMeta = {
+                            nombre: file.originalname,
+                            tipo: file.mimetype,
+                            tamanio: file.size,
+                            url: result.url,
+                            public_id: result.publicId || result.public_id || null
+                        };
+                        archivos.push(fileMeta);
+                        archivosPaths.push(result.url);
+                        // Guardar el primer CV en el campo DB (string JSON con url + public_id)
+                        if (!portafolio_file_postu_proveedor) {
+                            try {
+                                portafolio_file_postu_proveedor = JSON.stringify({ url: result.url, public_id: result.publicId || result.public_id || null });
+                            } catch (e) {
+                                portafolio_file_postu_proveedor = result.url;
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Para otros archivos, almacenar en tmp_uploads como antes
+                    const fileUrl = `/tmp_uploads/${file.filename}`;
+                    archivosPaths.push(fileUrl);
+                    archivos.push({
+                        nombre: file.originalname,
+                        tipo: file.mimetype,
+                        tamanio: file.size,
+                        url: fileUrl
+                    });
+                } catch (uploadErr) {
+                    console.error('[TRABaja][CREATE] Error subiendo archivo a Cloudinary:', uploadErr);
+                    return res.status(500).json({ success: false, message: 'Error al subir archivo', error: uploadErr.message });
+                }
             }
         }
 
-        // Preparar datos para insertar
+        // Preparar datos para insertar (usar campo portafolio_file_postu_proveedor si existe)
         const dataToInsert = {
             categoria_postu_proveedor: categoria,
             nom_empresa_postu_proveedor: empresa,
             correo_postu_proveedor: email,
             portafolio_postu_proveedor: portafolio || null,
-            archivos_paths: archivosPaths.length > 0 ? archivosPaths : null
+            portafolio_link_postu_proveedor: null,
+            portafolio_file_postu_proveedor: portafolio_file_postu_proveedor || null
         };
 
         const result = await service.createTrabajaNosotrosProveedor(dataToInsert);
+
+        // Preparar respuesta: incluir metadata de archivos y URL absoluta si corresponde
+        const responseArchivos = archivos.map(a => ({...a, url: a.url && makeAbsoluteUrl(a.url) }));
 
         res.status(201).json({
             success: true,
@@ -114,9 +185,12 @@ exports.create = async(req, res) => {
                 empresa: result.nom_empresa_postu_proveedor,
                 email: result.correo_postu_proveedor,
                 portafolio: result.portafolio_postu_proveedor,
+                portafolio_file: result.portafolio_file_postu_proveedor ? (function() {
+                    try { const v = JSON.parse(result.portafolio_file_postu_proveedor); return { url: makeAbsoluteUrl(v.url), public_id: v.public_id }; } catch (e) { return { url: makeAbsoluteUrl(result.portafolio_file_postu_proveedor) }; }
+                })() : null,
                 fecha: result.fecha_postu_proveedor
             },
-            archivos: archivos
+            archivos: responseArchivos
         });
 
     } catch (err) {

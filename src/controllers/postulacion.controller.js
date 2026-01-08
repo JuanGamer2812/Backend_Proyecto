@@ -1,6 +1,39 @@
 const postulacionModel = require('../models/postulacion.models');
 const cloudinaryConfig = require('../config/cloudinary.config');
 
+exports.getCvSigned = async(req, res) => {
+    try {
+        const id = req.params.id;
+        if (!id) return res.status(400).json({ error: 'id required' });
+        const row = await postulacionModel.findTrabajadorById(id);
+        if (!row) return res.status(404).json({ error: 'not found' });
+
+        let meta = null;
+        if (row.cv_postu_trabajador) {
+            try {
+                meta = JSON.parse(row.cv_postu_trabajador);
+            } catch (e) {
+                // if it's a plain URL string
+                meta = { url: row.cv_postu_trabajador };
+            }
+        }
+
+        if (!meta || !meta.public_id) {
+            // If no public_id, but have url and it's publicly accessible, return it
+            if (meta && meta.url) return res.json({ signedUrl: meta.url });
+            return res.status(404).json({ error: 'no asset metadata' });
+        }
+
+        const cloud = cloudinaryConfig.cloudinary || cloudinaryConfig;
+        const resourceType = meta.resource_type || 'raw';
+        const signedUrl = cloud.url(meta.public_id, { sign_url: true, resource_type: resourceType });
+        return res.json({ signedUrl });
+    } catch (err) {
+        console.error('[postulacion.controller] getCvSigned error', err);
+        res.status(500).json({ error: 'internal' });
+    }
+};
+
 /**
  * POST /api/postulaciones/proveedores
  * Registra una postulación de proveedor
@@ -23,6 +56,7 @@ exports.crearProveedor = async(req, res) => {
         }
 
         let portafolioUrl = null;
+        let portafolioMeta = null;
 
         // Si hay archivo, subirlo a Cloudinary
         if (req.file) {
@@ -35,12 +69,23 @@ exports.crearProveedor = async(req, res) => {
             });
 
             try {
-                const result = await cloudinaryConfig.uploadImageBuffer(
-                    req.file.buffer,
-                    'eclat/postulaciones/proveedores'
-                );
+                const isPDF = req.file.mimetype === 'application/pdf';
+                let result;
+                if (isPDF && cloudinaryConfig.uploadFileBuffer) {
+                    result = await cloudinaryConfig.uploadFileBuffer(
+                        req.file.buffer,
+                        'eclat/postulaciones/proveedores',
+                        req.file.originalname
+                    );
+                } else {
+                    result = await cloudinaryConfig.uploadImageBuffer(
+                        req.file.buffer,
+                        'eclat/postulaciones/proveedores'
+                    );
+                }
                 portafolioUrl = result.url;
-                console.log('[postulacion.controller] Archivo subido a Cloudinary:', portafolioUrl);
+                portafolioMeta = { url: result.url, public_id: result.publicId || result.public_id, resource_type: result.resourceType || result.resource_type || (isPDF ? 'raw' : 'image') };
+                console.log('[postulacion.controller] Archivo subido a Cloudinary:', portafolioMeta);
             } catch (cloudinaryError) {
                 console.error('[postulacion.controller] Error al subir a Cloudinary:', cloudinaryError);
                 return res.status(500).json({
@@ -56,7 +101,7 @@ exports.crearProveedor = async(req, res) => {
             correo_postu_proveedor: correo,
             portafolio_postu_proveedor: portafolio,
             portafolio_link_postu_proveedor: portafolioLink || null,
-            portafolio_file_postu_proveedor: portafolioUrl
+            portafolio_file_postu_proveedor: portafolioMeta ? JSON.stringify(portafolioMeta) : portafolioUrl
         };
 
         console.log('[postulacion.controller] Datos a guardar en BD:', data);
@@ -114,6 +159,7 @@ exports.crearTrabajador = async(req, res) => {
         }
 
         let cvUrl = null;
+        let cvMeta = null;
 
         // Si hay archivo, subirlo a Cloudinary
         if (req.file) {
@@ -126,12 +172,23 @@ exports.crearTrabajador = async(req, res) => {
             });
 
             try {
-                const result = await cloudinaryConfig.uploadImageBuffer(
-                    req.file.buffer,
-                    'eclat/postulaciones/trabajadores'
-                );
+                const isPDF = req.file.mimetype === 'application/pdf';
+                let result;
+                if (isPDF && cloudinaryConfig.uploadFileBuffer) {
+                    result = await cloudinaryConfig.uploadFileBuffer(
+                        req.file.buffer,
+                        'eclat/postulaciones/trabajadores',
+                        req.file.originalname
+                    );
+                } else {
+                    result = await cloudinaryConfig.uploadImageBuffer(
+                        req.file.buffer,
+                        'eclat/postulaciones/trabajadores'
+                    );
+                }
                 cvUrl = result.url;
-                console.log('[postulacion.controller] Archivo subido a Cloudinary:', cvUrl);
+                cvMeta = { url: result.url, public_id: result.publicId || result.public_id, resource_type: result.resourceType || result.resource_type || (isPDF ? 'raw' : 'image') };
+                console.log('[postulacion.controller] Archivo subido a Cloudinary:', cvMeta);
             } catch (cloudinaryError) {
                 console.error('[postulacion.controller] Error al subir a Cloudinary:', cloudinaryError);
                 return res.status(500).json({
@@ -150,7 +207,7 @@ exports.crearTrabajador = async(req, res) => {
             fecha_naci_postu_trabajador: fechaNacimiento,
             correo_postu_trabajador: correo,
             telefono_postu_trabajador: telefono,
-            cv_postu_trabajador: cvUrl
+            cv_postu_trabajador: cvMeta ? JSON.stringify(cvMeta) : cvUrl
         };
 
         console.log('[postulacion.controller] Datos a guardar en BD:', data);
