@@ -48,7 +48,7 @@ exports.proxy = async(req, res) => {
     try {
         let url = req.query.url;
         if (!url) return res.status(400).json({ error: 'url required' });
-        
+
         // Decodificar la URL si viene doblemente encodificada (%2520 -> %20)
         let decodeSafety = 0;
         while (url.includes('%25') && decodeSafety < 3) {
@@ -56,53 +56,96 @@ exports.proxy = async(req, res) => {
             decodeSafety += 1;
             console.log('[proxy] URL decodificada (tenia encoding extra):', url);
         }
-        
+
         let parsed;
         try { parsed = new URL(url); } catch (e) { return res.status(400).json({ error: 'invalid url' }); }
         if (!parsed.hostname.endsWith('cloudinary.com')) return res.status(400).json({ error: 'host not allowed' });
 
-        console.log('[proxy] Fetching URL:', url);
-        
-        // Use fetch if available
-        const fetchFn = global.fetch || (await
-            import ('node-fetch')).default;
-        const r = await fetchFn(url);
-        
-        console.log('[proxy] Cloudinary response status:', r.status);
-        
-        if (!r.ok) {
-            console.log('[proxy] Cloudinary returned error:', r.status);
-            return res.status(r.status).end();
+        // Construir candidatos: URL decodificada, versión con espacios normalizados y versión con extensión .pdf
+        const candidates = new Set();
+        const buildUrl = (pathname) => `${parsed.origin}${pathname}${parsed.search}`;
+
+        const decodedPath = decodeURIComponent(parsed.pathname);
+        candidates.add(url);
+
+        // Normalizar espacios múltiples a uno
+        const normalizedSpaces = decodedPath.replace(/\s{2,}/g, ' ');
+        if (normalizedSpaces !== decodedPath) {
+            candidates.add(buildUrl(encodeURI(normalizedSpaces)));
         }
-        
-        // Leer el contenido como buffer para detectar PDF por magic bytes
-        const buffer = Buffer.from(await r.arrayBuffer());
-        
-        const upstreamType = r.headers.get('content-type') || 'application/octet-stream';
-        const pathLower = parsed.pathname.toLowerCase();
-        const isPdfInPath = pathLower.includes('.pdf') || pathLower.includes('/documentos/');
-        
-        // Detectar PDF por los magic bytes: %PDF-
-        const hasPdfMagic = buffer.length >= 5 &&
-            buffer[0] === 0x25 && // %
-            buffer[1] === 0x50 && // P
-            buffer[2] === 0x44 && // D
-            buffer[3] === 0x46 && // F
-            buffer[4] === 0x2d;   // -
-        
-        console.log('[proxy] upstreamType:', upstreamType, 'isPdfInPath:', isPdfInPath, 'hasPdfMagic:', hasPdfMagic, 'bufferLength:', buffer.length);
-        
-        let contentType = upstreamType;
-        if (upstreamType === 'application/octet-stream' || !upstreamType) {
-            if (hasPdfMagic || isPdfInPath) {
-                contentType = 'application/pdf';
+
+        const lastSegment = decodedPath.split('/').pop() || '';
+        const hasExtension = lastSegment.includes('.');
+        if (!hasExtension) {
+            candidates.add(buildUrl(encodeURI(`${decodedPath}.pdf`)));
+            if (normalizedSpaces !== decodedPath) {
+                candidates.add(buildUrl(encodeURI(`${normalizedSpaces}.pdf`)));
             }
         }
-        
-        console.log('[proxy] final contentType:', contentType);
-        res.set('content-type', contentType);
+
+        // Usar fetch si está disponible
+        const fetchFn = global.fetch || (await import('node-fetch')).default;
+
+        let chosenBuffer = null;
+        let chosenType = null;
+        let chosenStatus = null;
+
+        for (const candidate of candidates) {
+            console.log('[proxy] Fetching URL candidate:', candidate);
+            let response;
+            try {
+                response = await fetchFn(candidate);
+            } catch (fe) {
+                console.warn('[proxy] fetch failed for candidate', candidate, fe);
+                continue;
+            }
+
+            chosenStatus = response.status;
+            console.log('[proxy] Cloudinary response status:', response.status);
+            if (!response.ok) {
+                console.log('[proxy] Cloudinary returned error:', response.status);
+                continue;
+            }
+
+            const buffer = Buffer.from(await response.arrayBuffer());
+            const upstreamType = response.headers.get('content-type') || 'application/octet-stream';
+            const pathLower = new URL(candidate).pathname.toLowerCase();
+            const isPdfInPath = pathLower.includes('.pdf') || pathLower.includes('/documentos/');
+            const hasPdfMagic = buffer.length >= 5 &&
+                buffer[0] === 0x25 &&
+                buffer[1] === 0x50 &&
+                buffer[2] === 0x44 &&
+                buffer[3] === 0x46 &&
+                buffer[4] === 0x2d;
+
+            console.log('[proxy] upstreamType:', upstreamType, 'isPdfInPath:', isPdfInPath, 'hasPdfMagic:', hasPdfMagic, 'bufferLength:', buffer.length);
+
+            let contentType = upstreamType;
+            if (!upstreamType || upstreamType === 'application/octet-stream' || upstreamType === 'text/html') {
+                if (hasPdfMagic || isPdfInPath) {
+                    contentType = 'application/pdf';
+                }
+            }
+
+            // Si no se detecta PDF y el contenido parece HTML, probar siguiente candidato
+            if (contentType === 'text/html' && !hasPdfMagic && !isPdfInPath) {
+                continue;
+            }
+
+            chosenBuffer = buffer;
+            chosenType = contentType;
+            break;
+        }
+
+        if (!chosenBuffer) {
+            const statusToSend = chosenStatus && chosenStatus >= 400 ? chosenStatus : 404;
+            return res.status(statusToSend).json({ error: 'resource not found' });
+        }
+
+        console.log('[proxy] final contentType:', chosenType);
+        res.set('content-type', chosenType || 'application/pdf');
         res.set('content-disposition', 'inline');
-        res.send(buffer);
+        res.send(chosenBuffer);
     } catch (err) {
         console.error('[files.controller] proxy error', err);
         res.status(500).json({ error: 'proxy failed' });
