@@ -46,17 +46,33 @@ exports.getSignedUrl = async(req, res) => {
 
 exports.proxy = async(req, res) => {
     try {
-        const url = req.query.url;
+        let url = req.query.url;
         if (!url) return res.status(400).json({ error: 'url required' });
+        
+        // Decodificar la URL si viene doblemente encodificada
+        // Detectar si hay doble encoding (ej: %2520 en lugar de %20)
+        if (url.includes('%25')) {
+            url = decodeURIComponent(url);
+            console.log('[proxy] URL decodificada (tenia doble encoding):', url);
+        }
+        
         let parsed;
         try { parsed = new URL(url); } catch (e) { return res.status(400).json({ error: 'invalid url' }); }
         if (!parsed.hostname.endsWith('cloudinary.com')) return res.status(400).json({ error: 'host not allowed' });
 
+        console.log('[proxy] Fetching URL:', url);
+        
         // Use fetch if available
         const fetchFn = global.fetch || (await
             import ('node-fetch')).default;
         const r = await fetchFn(url);
-        if (!r.ok) return res.status(r.status).end();
+        
+        console.log('[proxy] Cloudinary response status:', r.status);
+        
+        if (!r.ok) {
+            console.log('[proxy] Cloudinary returned error:', r.status);
+            return res.status(r.status).end();
+        }
         
         // Leer el contenido como buffer para detectar PDF por magic bytes
         const buffer = Buffer.from(await r.arrayBuffer());
@@ -73,7 +89,7 @@ exports.proxy = async(req, res) => {
             buffer[3] === 0x46 && // F
             buffer[4] === 0x2d;   // -
         
-        console.log('[proxy] upstreamType:', upstreamType, 'isPdfInPath:', isPdfInPath, 'hasPdfMagic:', hasPdfMagic);
+        console.log('[proxy] upstreamType:', upstreamType, 'isPdfInPath:', isPdfInPath, 'hasPdfMagic:', hasPdfMagic, 'bufferLength:', buffer.length);
         
         let contentType = upstreamType;
         if (upstreamType === 'application/octet-stream' || !upstreamType) {
