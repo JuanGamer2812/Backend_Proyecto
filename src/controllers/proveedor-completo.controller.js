@@ -81,7 +81,10 @@ exports.getTop = async (req, res) => {
 exports.getById = async (req, res) => {
     try {
         const { id } = req.params;
+        console.log(`[proveedor-completo] getById llamado con id: ${id}`);
+        
         const proveedor = await proveedorService.getProveedorById(id);
+        console.log(`[proveedor-completo] Resultado de getProveedorById:`, proveedor ? 'encontrado' : 'no encontrado');
 
         if (!proveedor) {
             return res.status(404).json({
@@ -95,10 +98,16 @@ exports.getById = async (req, res) => {
             proveedor
         });
     } catch (error) {
-        console.error('Error al obtener proveedor:', error);
+        console.error('[proveedor-completo] Error detallado al obtener proveedor:', {
+            id: req.params.id,
+            errorMessage: error.message,
+            errorStack: error.stack,
+            errorCode: error.code
+        });
         res.status(500).json({
             error: 'Error del servidor',
-            message: error.message
+            message: error.message,
+            detail: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };

@@ -75,13 +75,28 @@ const getProveedoresTop = async (limit = 10) => {
  */
 const getProveedorById = async (id) => {
     try {
-        const result = await pool.query(
-            'SELECT * FROM v_proveedores_completo WHERE id_proveedor = $1',
-            [id]
-        );
+        console.log(`[proveedor-completo.service] Consultando proveedor id: ${id}`);
+        
+        // Primero verificamos si la vista existe, si no usamos la tabla directamente
+        let result;
+        try {
+            result = await pool.query(
+                'SELECT * FROM v_proveedores_completo WHERE id_proveedor = $1',
+                [id]
+            );
+        } catch (viewError) {
+            console.warn('[proveedor-completo.service] Vista v_proveedores_completo no disponible, usando tabla proveedor:', viewError.message);
+            // Fallback a la tabla proveedor directamente
+            result = await pool.query(
+                'SELECT * FROM proveedor WHERE id_proveedor = $1',
+                [id]
+            );
+        }
+        
+        console.log(`[proveedor-completo.service] Resultado: ${result.rows.length} filas`);
         return result.rows[0];
     } catch (error) {
-        console.error('Error al obtener proveedor:', error);
+        console.error('[proveedor-completo.service] Error al obtener proveedor:', error);
         throw error;
     }
 };
